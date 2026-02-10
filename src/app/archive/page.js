@@ -81,7 +81,9 @@ export default function ArchivePage() {
                     </nav>
                 </div>
                 <div className="header-right">
-                    <span className="header-email">{user?.email}</span>
+                    <span className="header-email">
+                        {user?.user_metadata?.first_name ? `${user.user_metadata.first_name} ${user.user_metadata.last_name}` : user?.email}
+                    </span>
                     <button className="btn-logout" onClick={handleLogout}>Log Out</button>
                 </div>
             </header>

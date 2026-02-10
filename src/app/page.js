@@ -8,6 +8,8 @@ export default function AuthPage() {
   const [tab, setTab] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -31,7 +33,16 @@ export default function AuthPage() {
         if (error) throw error;
         router.push('/dashboard');
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+            }
+          }
+        });
         if (error) throw error;
         setSuccess('Account created! Check your email for a confirmation link, then log in.');
         setTab('login');
@@ -70,6 +81,32 @@ export default function AuthPage() {
         {success && <div className="auth-success">{success}</div>}
 
         <form onSubmit={handleSubmit}>
+          {tab === 'signup' && (
+            <div className="form-row-nested" style={{ display: 'flex', gap: '12px' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>First Name</label>
+                <input
+                  id="auth-first-name"
+                  type="text"
+                  placeholder="Jane"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Last Name</label>
+                <input
+                  id="auth-last-name"
+                  type="text"
+                  placeholder="Doe"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          )}
           <div className="form-group">
             <label>Email address</label>
             <input
