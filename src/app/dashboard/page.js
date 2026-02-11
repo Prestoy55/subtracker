@@ -24,21 +24,25 @@ function formatDate(dateStr) {
 }
 
 function formatCurrency(amount, currency = 'USD') {
-    const symbolMap = {
-        'USD': '$',
-        'EUR': '€',
-        'NOK': 'kr'
-    };
-
-    // For NOK, usually symbol comes after or use locale nb-NO
-    if (currency === 'NOK') {
-        return `${new Intl.NumberFormat('nb-NO').format(amount)} kr`;
-    }
-
-    return new Intl.NumberFormat('en-US', {
+    const formatter = new Intl.NumberFormat(currency === 'NOK' ? 'nb-NO' : 'en-US', {
         style: 'currency',
         currency: currency,
-    }).format(amount);
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+
+    const parts = formatter.formatToParts(amount);
+
+    return (
+        <>
+            {parts.map((part, index) => {
+                if (part.type === 'fraction' || part.type === 'decimal') {
+                    return <span key={index} className="currency-decimal">{part.value}</span>;
+                }
+                return part.value;
+            })}
+        </>
+    );
 }
 
 export default function DashboardPage() {

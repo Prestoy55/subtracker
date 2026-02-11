@@ -6,13 +6,25 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
 function formatCurrency(amount, currency = 'USD') {
-    if (currency === 'NOK') {
-        return `${new Intl.NumberFormat('nb-NO').format(amount)} kr`;
-    }
-    return new Intl.NumberFormat('en-US', {
+    const formatter = new Intl.NumberFormat(currency === 'NOK' ? 'nb-NO' : 'en-US', {
         style: 'currency',
         currency: currency,
-    }).format(amount);
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+
+    const parts = formatter.formatToParts(amount);
+
+    return (
+        <>
+            {parts.map((part, index) => {
+                if (part.type === 'fraction' || part.type === 'decimal') {
+                    return <span key={index} className="currency-decimal">{part.value}</span>;
+                }
+                return part.value;
+            })}
+        </>
+    );
 }
 
 function formatDate(dateStr) {
