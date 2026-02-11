@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 
-export default function AddSubscriptionModal({ onClose, onAdd }) {
-    const [name, setName] = useState('');
-    const [price, setPrice] = useState('');
-    const [renewalDate, setRenewalDate] = useState('');
-    const [subscriptionEmail, setSubscriptionEmail] = useState('');
-    const [subscriptionType, setSubscriptionType] = useState('normal');
-    const [loading, setLoading] = useState(false);
+export default function AddSubscriptionModal({ onClose, onAdd, onUpdate, initialData = null }) {
+    const [name, setName] = useState(initialData?.name || '');
+    const [price, setPrice] = useState(initialData?.price || '');
+    const [renewalDate, setRenewalDate] = useState(initialData?.renewal_date || '');
+    const [subscriptionEmail, setSubscriptionEmail] = useState(initialData?.subscription_email || '');
+    const [subscriptionType, setSubscriptionType] = useState(initialData?.subscription_type || 'normal');
+    const [currency, setCurrency] = useState(initialData?.currency || 'USD');
+    const [loading, setLoading] = useState(initialData === 'loading'); // reused state if needed
     const [error, setError] = useState('');
 
     const handleSubmit = async (e) => {
@@ -16,14 +17,21 @@ export default function AddSubscriptionModal({ onClose, onAdd }) {
         setError('');
         setLoading(true);
 
+        const subData = {
+            name: name.trim(),
+            price: parseFloat(price),
+            renewal_date: renewalDate,
+            subscription_email: subscriptionEmail.trim(),
+            subscription_type: subscriptionType,
+            currency,
+        };
+
         try {
-            await onAdd({
-                name: name.trim(),
-                price: parseFloat(price),
-                renewal_date: renewalDate,
-                subscription_email: subscriptionEmail.trim(),
-                subscription_type: subscriptionType,
-            });
+            if (initialData) {
+                await onUpdate(initialData.id, subData);
+            } else {
+                await onAdd(subData);
+            }
             onClose();
         } catch (err) {
             setError(err.message);
@@ -35,7 +43,7 @@ export default function AddSubscriptionModal({ onClose, onAdd }) {
     return (
         <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
             <div className="modal">
-                <h3>Add New Subscription</h3>
+                <h3>{initialData ? 'Edit Subscription' : 'Add New Subscription'}</h3>
 
                 {error && <div className="auth-error">{error}</div>}
 
@@ -77,18 +85,42 @@ export default function AddSubscriptionModal({ onClose, onAdd }) {
                         />
                     </div>
 
-                    <div className="form-group">
-                        <label>Price</label>
-                        <input
-                            id="sub-price"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder="9.99"
-                            value={price}
-                            onChange={(e) => setPrice(e.target.value)}
-                            required
-                        />
+                    <div className="form-row-nested" style={{ display: 'flex', gap: '12px' }}>
+                        <div className="form-group" style={{ flex: 1 }}>
+                            <label>Price</label>
+                            <input
+                                id="sub-price"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="9.99"
+                                value={price}
+                                onChange={(e) => setPrice(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="form-group" style={{ width: '100px' }}>
+                            <label>Currency</label>
+                            <select
+                                id="sub-currency"
+                                value={currency}
+                                onChange={(e) => setCurrency(e.target.value)}
+                                className="styled-select"
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                                    color: 'white',
+                                    outline: 'none'
+                                }}
+                            >
+                                <option value="USD">USD ($)</option>
+                                <option value="EUR">EUR (€)</option>
+                                <option value="NOK">NOK (kr)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div className="form-group">
@@ -119,7 +151,7 @@ export default function AddSubscriptionModal({ onClose, onAdd }) {
                             Cancel
                         </button>
                         <button type="submit" className="btn-primary" disabled={loading}>
-                            {loading ? <span className="spinner" /> : 'Add Subscription'}
+                            {loading ? <span className="spinner" /> : (initialData ? 'Save Changes' : 'Add Subscription')}
                         </button>
                     </div>
                 </form>

@@ -23,19 +23,71 @@ function formatDate(dateStr) {
     });
 }
 
-function formatCurrency(amount) {
+function formatCurrency(amount, currency = 'USD') {
+    const symbolMap = {
+        'USD': '$',
+        'EUR': '€',
+        'NOK': 'kr'
+    };
+
+    // For NOK, usually symbol comes after or use locale nb-NO
+    if (currency === 'NOK') {
+        return `${new Intl.NumberFormat('nb-NO').format(amount)} kr`;
+    }
+
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
-        currency: 'USD',
+        currency: currency,
     }).format(amount);
 }
 
 export default function DashboardPage() {
-    const [user, setUser] = useState(null);
+    const [userSub, setUserSub] = useState(null);
     const [subscriptions, setSubscriptions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [stats, setStats] = useState({ active: 0, monthlyTotal: 0, temp: 0, renewingSoon: 0 });
+    const [exchangeRates, setExchangeRates] = useState({});
     const [showModal, setShowModal] = useState(false);
+    const [editingSub, setEditingSub] = useState(null);
     const router = useRouter();
+
+    const fetchExchangeRates = async () => {
+        try {
+            const { data, error } = await supabase.from('exchange_rates').select('code, rate_to_nok');
+            if (error) throw error;
+            if (data) {
+                const rates = {};
+                data.forEach(r => rates[r.code] = r.rate_to_nok);
+                setExchangeRates(prev => ({ ...prev, ...rates }));
+            }
+        } catch (error) {
+            console.error('Error fetching exchange rates:', error);
+        }
+    };
+
+    const calculateStats = useCallback((subs) => {
+        const activeSubs = subs || subscriptions;
+
+        const monthlyTotal = activeSubs.reduce((acc, sub) => {
+            const price = parseFloat(sub.price) || 0;
+            if (sub.currency === 'NOK') return acc + price;
+            const rate = exchangeRates[sub.currency] || 0; // Default to 0 if rate not found
+            return acc + (price * rate);
+        }, 0);
+
+        const tempCount = activeSubs.filter((s) => s.subscription_type === 'temporary').length;
+        const urgentCount = activeSubs.filter((s) => {
+            const days = getDaysUntil(s.renewal_date);
+            return days >= 0 && days <= 5;
+        }).length;
+
+        setStats({
+            active: activeSubs.length,
+            monthlyTotal: monthlyTotal,
+            temp: tempCount,
+            renewingSoon: urgentCount,
+        });
+    }, [subscriptions, exchangeRates]);
 
     const fetchSubscriptions = useCallback(async () => {
         const { data, error } = await supabase
@@ -43,7 +95,14 @@ export default function DashboardPage() {
             .select('*')
             .order('renewal_date', { ascending: true });
 
-        if (!error && data) setSubscriptions(data);
+        if (!error && data) {
+            setSubscriptions(data);
+            calculateStats(data);
+        }
+    }, [calculateStats]);
+
+    useEffect(() => {
+        fetchExchangeRates();
     }, []);
 
     useEffect(() => {
@@ -53,7 +112,7 @@ export default function DashboardPage() {
                 router.push('/');
                 return;
             }
-            setUser(session.user);
+            setUserSub(session.user);
             await fetchSubscriptions();
             setLoading(false);
         };
@@ -68,8 +127,17 @@ export default function DashboardPage() {
     const handleAdd = async (subData) => {
         const { error } = await supabase.from('subscriptions').insert({
             ...subData,
-            user_id: user.id,
+            user_id: userSub.id,
         });
+        if (error) throw error;
+        await fetchSubscriptions();
+    };
+
+    const handleUpdate = async (id, subData) => {
+        const { error } = await supabase
+            .from('subscriptions')
+            .update(subData)
+            .eq('id', id);
         if (error) throw error;
         await fetchSubscriptions();
     };
@@ -85,7 +153,7 @@ export default function DashboardPage() {
 
         // Insert into archive
         const { error: archiveError } = await supabase.from('archived_subscriptions').insert({
-            user_id: user.id,
+            user_id: userSub.id,
             name: sub.name,
             price: sub.price,
             subscription_email: sub.subscription_email,
@@ -124,13 +192,6 @@ export default function DashboardPage() {
         );
     }
 
-    const totalMonthly = subscriptions.reduce((sum, s) => sum + parseFloat(s.price), 0);
-    const tempCount = subscriptions.filter((s) => s.subscription_type === 'temporary').length;
-    const urgentCount = subscriptions.filter((s) => {
-        const days = getDaysUntil(s.renewal_date);
-        return days >= 0 && days <= 5;
-    }).length;
-
     return (
         <div className="app-layout">
             <header className="app-header">
@@ -143,7 +204,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="header-right">
                     <span className="header-email">
-                        {user?.user_metadata?.first_name ? `${user.user_metadata.first_name} ${user.user_metadata.last_name}` : user?.email}
+                        {userSub?.user_metadata?.first_name ? `${userSub.user_metadata.first_name} ${userSub.user_metadata.last_name}` : userSub?.email}
                     </span>
                     <button className="btn-logout" onClick={handleLogout}>Log Out</button>
                 </div>
@@ -164,20 +225,20 @@ export default function DashboardPage() {
                 <div className="stats-row">
                     <div className="stat-card">
                         <div className="stat-label">Active Subscriptions</div>
-                        <div className="stat-value accent">{subscriptions.length}</div>
+                        <div className="stat-value accent">{stats.active}</div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-label">Monthly Total</div>
-                        <div className="stat-value">{formatCurrency(totalMonthly)}</div>
+                        <div className="stat-label">MONTHLY TOTAL (NOK)</div>
+                        <div className="stat-value">{formatCurrency(stats.monthlyTotal, 'NOK')}</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-label">Temporary</div>
-                        <div className="stat-value warning">{tempCount}</div>
+                        <div className="stat-value warning">{stats.temp}</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-label">Renewing Soon</div>
-                        <div className="stat-value" style={{ color: urgentCount > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                            {urgentCount}
+                        <div className="stat-value" style={{ color: stats.renewingSoon > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                            {stats.renewingSoon}
                         </div>
                     </div>
                 </div>
@@ -218,7 +279,7 @@ export default function DashboardPage() {
                                     <div className="sub-details">
                                         <div className="sub-detail">
                                             <span className="sub-detail-label">Price</span>
-                                            <span className="sub-price">{formatCurrency(sub.price)}</span>
+                                            <span className="sub-price">{formatCurrency(sub.price, sub.currency)}</span>
                                         </div>
                                         <div className="sub-detail">
                                             <span className="sub-detail-label">Email</span>
@@ -237,6 +298,25 @@ export default function DashboardPage() {
 
                                     <div className="sub-card-actions">
                                         <button
+                                            className="btn-edit-inline"
+                                            onClick={() => {
+                                                setEditingSub(sub);
+                                                setShowModal(true);
+                                            }}
+                                            style={{
+                                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                                color: 'var(--text-secondary)',
+                                                padding: '6px 12px',
+                                                borderRadius: '6px',
+                                                fontSize: '0.85rem',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
                                             className="btn-delete"
                                             onClick={() => handleDelete(sub)}
                                         >
@@ -252,8 +332,13 @@ export default function DashboardPage() {
 
             {showModal && (
                 <AddSubscriptionModal
-                    onClose={() => setShowModal(false)}
+                    onClose={() => {
+                        setShowModal(false);
+                        setEditingSub(null);
+                    }}
                     onAdd={handleAdd}
+                    onUpdate={handleUpdate}
+                    initialData={editingSub}
                 />
             )}
         </div>

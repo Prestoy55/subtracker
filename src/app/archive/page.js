@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
-function formatCurrency(amount) {
+function formatCurrency(amount, currency = 'USD') {
+    if (currency === 'NOK') {
+        return `${new Intl.NumberFormat('nb-NO').format(amount)} kr`;
+    }
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
-        currency: 'USD',
+        currency: currency,
     }).format(amount);
 }
 
@@ -33,26 +36,61 @@ export default function ArchivePage() {
     const [user, setUser] = useState(null);
     const [archived, setArchived] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [userName, setUserName] = useState('');
+    const [exchangeRates, setExchangeRates] = useState({ USD: 10.5, EUR: 11.5 });
     const router = useRouter();
 
+    const fetchExchangeRates = async () => {
+        try {
+            const { data, error } = await supabase.from('exchange_rates').select('code, rate_to_nok');
+            if (error) throw error;
+            if (data) {
+                const rates = {};
+                data.forEach(r => rates[r.code] = r.rate_to_nok);
+                setExchangeRates(prev => ({ ...prev, ...rates }));
+            }
+        } catch (error) {
+            console.error('Error fetching exchange rates:', error);
+        }
+    };
+
+    const fetchArchived = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('archived_subscriptions')
+                .select('*')
+                .order('ended_at', { ascending: false });
+
+            if (error) throw error;
+            if (data) setArchived(data);
+        } catch (error) {
+            console.error('Error fetching archived subscriptions:', error);
+        }
+    };
+
+    const fetchUserName = (currentUser) => {
+        if (currentUser?.user_metadata?.first_name) {
+            setUserName(`${currentUser.user_metadata.first_name} ${currentUser.user_metadata.last_name}`);
+        } else if (currentUser?.email) {
+            setUserName(currentUser.email);
+        }
+    };
+
     useEffect(() => {
-        const checkAuth = async () => {
+        const initPage = async () => {
+            setLoading(true);
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
                 router.push('/');
                 return;
             }
             setUser(session.user);
-
-            const { data, error } = await supabase
-                .from('archived_subscriptions')
-                .select('*')
-                .order('ended_at', { ascending: false });
-
-            if (!error && data) setArchived(data);
+            fetchUserName(session.user);
+            await fetchExchangeRates();
+            await fetchArchived();
             setLoading(false);
         };
-        checkAuth();
+        initPage();
     }, [router]);
 
     const handleLogout = async () => {
@@ -68,7 +106,12 @@ export default function ArchivePage() {
         );
     }
 
-    const totalAllTimeSpent = archived.reduce((sum, a) => sum + parseFloat(a.total_spent), 0);
+    const totalAllTimeSpent = archived.reduce((acc, item) => {
+        const spent = parseFloat(item.total_spent) || 0;
+        if (item.currency === 'NOK') return acc + spent;
+        const rate = exchangeRates[item.currency] || 1; // Default to 1 if rate not found, or use a fallback like USD/EUR defaults
+        return acc + (spent * rate);
+    }, 0);
 
     return (
         <div className="app-layout">
@@ -103,9 +146,9 @@ export default function ArchivePage() {
                             <div className="stat-value accent">{archived.length}</div>
                         </div>
                         <div className="stat-card">
-                            <div className="stat-label">Total All-Time Spent</div>
+                            <div className="stat-label">Total Spent (NOK)</div>
                             <div className="stat-value" style={{ color: 'var(--accent-primary-hover)' }}>
-                                {formatCurrency(totalAllTimeSpent)}
+                                {formatCurrency(totalAllTimeSpent, 'NOK')}
                             </div>
                         </div>
                     </div>
@@ -131,7 +174,7 @@ export default function ArchivePage() {
                                     <div className="archive-stat">
                                         <div className="archive-stat-label">Total Spent</div>
                                         <div className="archive-stat-value total-spent">
-                                            {formatCurrency(item.total_spent)}
+                                            {formatCurrency(item.total_spent, item.currency)}
                                         </div>
                                     </div>
                                     <div className="archive-stat">
@@ -143,7 +186,7 @@ export default function ArchivePage() {
                                     <div className="archive-stat">
                                         <div className="archive-stat-label">Monthly Price</div>
                                         <div className="archive-stat-value">
-                                            {formatCurrency(item.price)}
+                                            {formatCurrency(item.price, item.currency)}
                                         </div>
                                     </div>
                                     <div className="archive-stat">
